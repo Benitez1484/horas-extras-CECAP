@@ -415,19 +415,40 @@ async function startApp() {
 function startEmployeeListener() {
   stopListeners();
   // Sin orderBy → evita requerir índices compuestos en Firestore
-  S.empUnsub = db.collection('employees').onSnapshot(snap => {
+  S.empUnsub = db.collection('employees').onSnapshot(async snap => {
     const list = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+      
     S.employees = {};
     list.forEach(emp => { S.employees[emp.id] = emp });
+    
+    // 1. Renderizamos el sidebar con la estructura básica inmediatamente
     renderSidebar();
-    // Si el colaborador actual fue eliminado, limpiar vista
+    
+    // 2. Si el colaborador actual fue eliminado, limpiar vista
     if (S.currentPid && !S.employees[S.currentPid]) {
       if (S.entryUnsub) { try { S.entryUnsub() } catch {} S.entryUnsub = null }
       S.currentPid = null; S.entries = [];
       showPersonView(null);
     }
+
+    // 3. NUEVO: Obtener los registros de todos los colaboradores para actualizar los contadores
+    try {
+      await Promise.all(list.map(async emp => {
+        // Obtenemos la colección 'entries' de cada empleado
+        const entSnap = await db.collection('employees').doc(emp.id).collection('entries').get();
+        // Calculamos y guardamos sus estadísticas en caché
+        S.empStats[emp.id] = calcStats(entSnap.docs.map(d => d.data()));
+      }));
+      
+      // 4. Volvemos a renderizar el menú lateral, ahora con los datos de horas listos
+      renderSidebar();
+      
+    } catch (e) {
+      console.error('Error calculando horas para el menú lateral:', e);
+    }
+
   }, err => {
     console.error('Employee listener:', err);
     if (err.code === 'permission-denied') showScreen('firebase-help');
