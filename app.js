@@ -15,6 +15,11 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
+// Caché local en disco → segunda visita es instantánea
+db.enablePersistence({ synchronizeTabs: true }).catch(() => {
+  // Si falla (navegador privado o ya activo en otra pestaña), ignorar
+});
+
 /* ── Constants ────────────────────────────────────── */
 const SESSION_KEY   = 'tt_v2_session';
 const SESSION_HOURS = 8;
@@ -23,6 +28,12 @@ const COLORS = [
   '#00d4aa','#ff6b6b','#ffd166','#4d9fff','#a78bfa',
   '#fb923c','#34d399','#f472b6','#60a5fa','#e879f9'
 ];
+
+/* ── Login cache (evita llamadas extra a Firebase al iniciar sesión) ────── */
+const CACHE = {
+  admin:     null,  // { name, passwordHash } – precargado en init()
+  employees: {},    // { id: { name, color, passwordHash } } – precargado al mostrar login
+};
 
 /* ── State ────────────────────────────────────────── */
 const S = {
@@ -168,6 +179,7 @@ async function init() {
       // Primera vez: mostrar setup
       showScreen('setup-screen');
     } else {
+      CACHE.admin = snap.data(); // ← guardar en caché para login instantáneo
       await populateLoginDropdown();
       showScreen('login-screen');
     }
@@ -244,6 +256,10 @@ async function populateLoginDropdown() {
       .map(d => ({ id: d.id, ...d.data() }))
       .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
 
+    // Guardar en caché para verificación local en doLogin (sin llamada extra a Firebase)
+    CACHE.employees = {};
+    list.forEach(emp => { CACHE.employees[emp.id] = emp });
+
     const sel = qs('login-who');
     sel.innerHTML = '<option value="">— Seleccionar persona —</option><option value="__admin__">🛡 Administrador</option>';
     list.forEach(emp => {
@@ -272,23 +288,34 @@ async function doLogin() {
   btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;margin:0 auto"></div>';
 
   try {
+    // SHA-256 local (≈ 1ms) — sin llamada a Firebase
     const hash = await sha256(pw);
     let newSession;
 
     if (pid === '__admin__') {
-      const snap = await ADMIN_REF.get();
-      if (!snap.exists)                      throw Object.assign(new Error(), { code: 'wrong' });
-      if (snap.data().passwordHash !== hash) throw Object.assign(new Error(), { code: 'wrong' });
+      // Verificar contra caché local (cargado en init)
+      if (!CACHE.admin || CACHE.admin.passwordHash !== hash) {
+        throw Object.assign(new Error(), { code: 'wrong' });
+      }
       newSession = {
         personId: '__admin__', isAdmin: true,
-        name: snap.data().name || 'Administrador', color: '#4d9fff'
+        name: CACHE.admin.name || 'Administrador', color: '#4d9fff'
       };
     } else {
-      const snap = await db.collection('employees').doc(pid).get();
-      if (!snap.exists)                      throw Object.assign(new Error(), { code: 'wrong' });
-      if (snap.data().passwordHash !== hash) throw Object.assign(new Error(), { code: 'wrong' });
-      const d = snap.data();
-      newSession = { personId: pid, isAdmin: false, name: d.name, color: d.color || '#00d4aa' };
+      // Verificar contra caché local (cargado en populateLoginDropdown)
+      const emp = CACHE.employees[pid];
+      if (!emp || emp.passwordHash !== hash) {
+        // Si no hay caché (ej. página recién abierta con sesión), ir a Firebase como respaldo
+        const snap = await db.collection('employees').doc(pid).get();
+        if (!snap.exists || snap.data().passwordHash !== hash) {
+          throw Object.assign(new Error(), { code: 'wrong' });
+        }
+        const d = snap.data();
+        CACHE.employees[pid] = d; // guardar para próxima vez
+        newSession = { personId: pid, isAdmin: false, name: d.name, color: d.color || '#00d4aa' };
+      } else {
+        newSession = { personId: pid, isAdmin: false, name: emp.name, color: emp.color || '#00d4aa' };
+      }
     }
 
     S.session = newSession;
@@ -406,10 +433,13 @@ async function doAddEmployee() {
 
   try {
     const hash = await sha256(pw);
-    await db.collection('employees').doc(uid()).set({
+    const newId = uid();
+    const empData = {
       name, color: S.pickedColor, passwordHash: hash,
       createdAt: new Date().toISOString()
-    });
+    };
+    await db.collection('employees').doc(newId).set(empData);
+    CACHE.employees[newId] = { id: newId, ...empData }; // añadir al caché
     closeModals();
     toast(`${name} agregado al equipo 🎉`);
   } catch (err) {
@@ -467,8 +497,13 @@ async function doChangePw() {
   const { personId, isAdmin } = S.changePwFor;
   try {
     const hash = await sha256(pw1);
-    if (isAdmin) await ADMIN_REF.update({ passwordHash: hash });
-    else         await db.collection('employees').doc(personId).update({ passwordHash: hash });
+    if (isAdmin) {
+      await ADMIN_REF.update({ passwordHash: hash });
+      if (CACHE.admin) CACHE.admin.passwordHash = hash; // mantener caché sincronizado
+    } else {
+      await db.collection('employees').doc(personId).update({ passwordHash: hash });
+      if (CACHE.employees[personId]) CACHE.employees[personId].passwordHash = hash;
+    }
     closeModals();
     toast('Contraseña actualizada correctamente ✓');
   } catch (err) {
