@@ -304,17 +304,20 @@ async function doLogin() {
     } else {
       // Verificar contra caché local (cargado en populateLoginDropdown)
       const emp = CACHE.employees[pid];
-      if (!emp || emp.passwordHash !== hash) {
-        // Si no hay caché (ej. página recién abierta con sesión), ir a Firebase como respaldo
+
+      if (emp) {
+        // Caché disponible → verificación local, sin Firebase
+        if (emp.passwordHash !== hash) throw Object.assign(new Error(), { code: 'wrong' });
+        newSession = { personId: pid, isAdmin: false, name: emp.name, color: emp.color || '#00d4aa' };
+      } else {
+        // Caché vacío (caso raro: página recién abierta con sesión expirada)
         const snap = await db.collection('employees').doc(pid).get();
         if (!snap.exists || snap.data().passwordHash !== hash) {
           throw Object.assign(new Error(), { code: 'wrong' });
         }
         const d = snap.data();
-        CACHE.employees[pid] = d; // guardar para próxima vez
+        CACHE.employees[pid] = { id: pid, ...d }; // guardar para no volver a buscar
         newSession = { personId: pid, isAdmin: false, name: d.name, color: d.color || '#00d4aa' };
-      } else {
-        newSession = { personId: pid, isAdmin: false, name: emp.name, color: emp.color || '#00d4aa' };
       }
     }
 
@@ -340,12 +343,33 @@ function doLogout() {
   if (!confirm('¿Cerrar sesión?')) return;
   fullCleanup();
   clearSession();
-  qs('login-pw').value = '';
+  qs('login-pw').value  = '';
   qs('login-who').value = '';
   qs('login-err').style.display = 'none';
   closeDrawer();
-  populateLoginDropdown();
+  // Repoblar dropdown desde caché local (sin llamada a Firebase)
+  repopulateDropdownFromCache();
   showScreen('login-screen');
+}
+
+// Reconstruye el dropdown de login usando el caché ya en memoria — instantáneo
+function repopulateDropdownFromCache() {
+  const sel = qs('login-who');
+  if (!sel) return;
+
+  // Ordenar por createdAt igual que al cargar
+  const list = Object.values(CACHE.employees)
+    .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+
+  sel.innerHTML = '<option value="">— Seleccionar persona —</option>' +
+                  '<option value="__admin__">🛡 Administrador</option>';
+
+  list.forEach(emp => {
+    const o = document.createElement('option');
+    o.value = emp.id;
+    o.textContent = emp.name;
+    sel.appendChild(o);
+  });
 }
 
 /* ════════════════════════════════════════════════════
