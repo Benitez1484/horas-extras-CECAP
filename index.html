@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CECAP – Horas Extra</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ══ LOADING ══ -->
+<div id="loading-screen" class="fullscreen">
+  <div class="orb-bg"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+  <div class="ls-center">
+    <img src="logo.png" class="ls-logo" alt="" onerror="this.style.display='none'">
+    <h1 class="brand">Horas<span>Extras</span>CECAP</h1>
+    <div class="spinner-lg"></div>
+    <p class="ls-sub">Conectando con Firebase…</p>
+  </div>
+</div>
+
+<!-- ══ FIREBASE HELP (reglas de seguridad) ══ -->
+<div id="firebase-help" class="fullscreen" style="display:none">
+  <div class="orb-bg"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+  <div class="auth-card" style="max-width:540px">
+    <div style="font-size:3rem;text-align:center;margin-bottom:10px">🔒</div>
+    <h1 class="brand" style="font-size:1.25rem;margin-bottom:6px">Configurar Firebase</h1>
+    <p class="ac-sub" style="margin-bottom:20px">Tu base de datos tiene las reglas en modo producción.<br>Sigue estos 4 pasos (tarda menos de 2 minutos):</p>
+
+    <div class="help-steps">
+      <div class="help-step">
+        <span class="help-num">1</span>
+        <span>Abre <a class="help-link" href="https://console.firebase.google.com/project/horasextras-d9155/firestore/rules" target="_blank">Firebase Console → Reglas de Firestore ↗</a></span>
+      </div>
+      <div class="help-step">
+        <span class="help-num">2</span>
+        <span>Reemplaza <strong>todo</strong> el contenido con esto:</span>
+      </div>
+    </div>
+
+    <div class="rules-box">
+      <div class="rules-copy-btn" onclick="copyRules()">Copiar</div>
+      <pre id="rules-text">rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}</pre>
+    </div>
+
+    <div class="help-steps" style="margin-top:12px">
+      <div class="help-step"><span class="help-num">3</span><span>Haz clic en el botón <strong style="color:var(--teal)">Publicar</strong> en Firebase Console</span></div>
+      <div class="help-step"><span class="help-num">4</span><span>Vuelve aquí y haz clic en Reintentar</span></div>
+    </div>
+
+    <button class="btn btn-primary btn-full" onclick="init()" style="margin-top:20px">↩ Reintentar conexión</button>
+    <p style="text-align:center;font-size:.72rem;color:var(--txt3);margin-top:14px">Estas reglas son correctas para uso interno de equipo.</p>
+  </div>
+</div>
+
+<!-- ══ SETUP (primera vez) ══ -->
+<div id="setup-screen" class="fullscreen" style="display:none">
+  <div class="orb-bg"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+  <div class="auth-card">
+    <img src="logo.png" class="ac-logo" alt="" onerror="this.style.display='none'">
+    <h1 class="brand">Horas<span>Extras</span>CECAP</h1>
+    <p class="ac-sub">¡Bienvenido! Primera configuración</p>
+    <div class="setup-badge">⚙️ Configurar Administrador</div>
+    <p class="setup-desc">Define las credenciales del administrador principal del sistema.</p>
+    <div class="fg">
+      <label class="fl">Nombre del Administrador</label>
+      <input type="text" class="fc" id="setup-name" value="Administrador" placeholder="Ej: Recursos Humanos" autocomplete="off">
+    </div>
+    <div class="fg">
+      <label class="fl">Contraseña (mínimo 4 caracteres)</label>
+      <div class="pw-wrap">
+        <input type="password" class="fc" id="setup-pw" placeholder="Elige una contraseña segura">
+        <button class="pw-eye" onclick="togglePw('setup-pw')" type="button">👁</button>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Confirmar Contraseña</label>
+      <div class="pw-wrap">
+        <input type="password" class="fc" id="setup-pw2" placeholder="Repite la contraseña" onkeydown="if(event.key==='Enter')doSetupAdmin()">
+        <button class="pw-eye" onclick="togglePw('setup-pw2')" type="button">👁</button>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-full" id="setup-btn" onclick="doSetupAdmin()">Configurar Sistema →</button>
+  </div>
+</div>
+
+<!-- ══ LOGIN ══ -->
+<div id="login-screen" class="fullscreen" style="display:none">
+  <div class="orb-bg"><div class="orb o1"></div><div class="orb o2"></div><div class="orb o3"></div></div>
+  <div class="auth-card">
+    <img src="logo.png" class="ac-logo" alt="" onerror="this.style.display='none'">
+    <h1 class="brand">Horas<span>Extras</span> CECAP</h1>
+    <p class="ac-sub">Control de Horas Extra</p>
+    <div class="fg">
+      <label class="fl">¿Quién eres?</label>
+      <select class="fc" id="login-who">
+        <option value="">— Seleccionar persona —</option>
+        <option value="__admin__">🛡 Administrador</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label class="fl">Contraseña</label>
+      <div class="pw-wrap">
+        <input type="password" class="fc" id="login-pw" placeholder="Tu contraseña" onkeydown="if(event.key==='Enter')doLogin()" autocomplete="current-password">
+        <button class="pw-eye" onclick="togglePw('login-pw')" type="button">👁</button>
+      </div>
+    </div>
+    <div id="login-err" class="login-err" style="display:none">❌ Contraseña incorrecta. Inténtalo de nuevo.</div>
+    <button class="btn btn-primary btn-full" id="login-btn" onclick="doLogin()">
+      <span>Iniciar Sesión</span> <span>→</span>
+    </button>
+    <p style="text-align:center;margin-top:14px;font-size:.75rem;color:var(--txt3)">
+      ¿Olvidaste la contraseña de admin?
+      <a href="#" class="help-link" onclick="showResetHelp();return false">Ver instrucciones</a>
+    </p>
+  </div>
+</div>
+
+<!-- ══ APP ══ -->
+<div id="app" style="display:none">
+
+  <!-- HEADER -->
+  <header class="app-hd">
+    <div class="hd-left">
+      <button class="hamburger" id="hamburger" onclick="toggleDrawer()" aria-label="Menú" style="display:none">
+        <span></span><span></span><span></span>
+      </button>
+      <div class="hd-brand">
+        <img src="logo.png" class="hd-logo-img" alt="" onerror="this.style.display='none'">
+        <div class="hd-logo-icon">⏱</div>
+        <span class="hd-logo-txt">Horas<span>Extras</span></span>
+      </div>
+    </div>
+    <div class="hd-right">
+      <button class="btn btn-ghost btn-sm" id="btn-summary" onclick="openSummary()" style="display:none">
+        📊 <span class="hd-btn-lbl">Resumen</span>
+      </button>
+      <div class="user-chip" id="user-chip"></div>
+      <button class="btn btn-ghost btn-icon" onclick="doLogout()" title="Cerrar sesión">⊗</button>
+    </div>
+  </header>
+
+  <!-- OVERLAY MÓVIL -->
+  <div id="drawer-overlay" onclick="closeDrawer()"></div>
+
+  <div class="app-body">
+
+    <!-- SIDEBAR -->
+    <aside id="sidebar" class="sidebar">
+      <div class="sb-hd">
+        <span class="sb-title">Colaboradores</span>
+        <button class="sb-close" onclick="closeDrawer()">✕</button>
+      </div>
+      <div id="person-list" class="person-list"></div>
+      <button class="add-emp-btn" id="btn-add-emp" onclick="openAddEmployee()" style="display:none">
+        <span class="aeb-icon">＋</span>
+        <span>Añadir colaborador</span>
+      </button>
+    </aside>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main id="content" class="content">
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon">🕐</div>
+        <h2>Control de Horas Extra</h2>
+        <p>Selecciona un colaborador del menú lateral para ver sus registros.</p>
+      </div>
+
+      <div id="person-view" style="display:none">
+
+        <div class="person-hd">
+          <div class="ph-left">
+            <div class="ph-av" id="v-avatar"></div>
+            <div>
+              <div class="ph-name" id="v-name"></div>
+              <div class="ph-since" id="v-since"></div>
+            </div>
+          </div>
+          <div class="ph-actions" id="ph-actions"></div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card" style="--sc:var(--coral)">
+            <div class="stat-lbl">⬆ Horas Extra</div>
+            <div class="stat-val" id="s-extra">0h</div>
+            <div class="stat-bar-bg"><div class="stat-bar" id="sb-extra" style="background:var(--coral)"></div></div>
+            <div class="stat-sub" id="sc-extra">0 registros</div>
+          </div>
+          <div class="stat-card" style="--sc:var(--teal)">
+            <div class="stat-lbl">⬇ Repuesto</div>
+            <div class="stat-val" id="s-recovery">0h</div>
+            <div class="stat-bar-bg"><div class="stat-bar" id="sb-recovery" style="background:var(--teal)"></div></div>
+            <div class="stat-sub" id="sc-recovery">0 registros</div>
+          </div>
+          <div class="stat-card" id="sc-card" style="--sc:var(--gold)">
+            <div class="stat-lbl">⚖ Saldo</div>
+            <div class="stat-val" id="s-balance">0h</div>
+            <div class="stat-bar-bg"><div class="stat-bar" id="sb-balance" style="background:var(--gold)"></div></div>
+            <div class="stat-sub" id="sc-balance">sin datos</div>
+          </div>
+        </div>
+
+        <div class="banner" id="banner">
+          <div class="banner-left">
+            <span class="banner-icon" id="b-icon">💡</span>
+            <div>
+              <strong class="banner-ttl" id="b-title">Sin registros</strong>
+              <span class="banner-sub" id="b-sub">Agrega el primer registro.</span>
+            </div>
+          </div>
+          <span class="banner-pct" id="b-pct"></span>
+        </div>
+
+        <div class="action-row">
+          <div class="filter-pills">
+            <button class="fpill fpill-active" id="fp-all" onclick="setFilter('all')">Todos</button>
+            <button class="fpill" id="fp-extra" onclick="setFilter('extra')">⬆ Extra</button>
+            <button class="fpill" id="fp-recovery" onclick="setFilter('recovery')">⬇ Repuesto</button>
+          </div>
+          <div class="action-btns">
+            <button class="btn btn-coral btn-sm" onclick="openAddEntry('extra')">＋ Extra</button>
+            <button class="btn btn-teal btn-sm" onclick="openAddEntry('recovery')">＋ Reposición</button>
+          </div>
+        </div>
+
+        <div id="entries-list" class="entries-list"></div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast"><span id="ti"></span><span id="tm"></span></div>
+
+<!-- ══ MODAL: Colaborador ══ -->
+<div class="overlay" id="m-emp" style="display:none">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="modal-ttl">👤 Nuevo Colaborador</div>
+      <button class="modal-x" onclick="closeModals()">✕</button>
+    </div>
+    <div class="fg">
+      <label class="fl">Nombre completo</label>
+      <input type="text" class="fc" id="ie-name" placeholder="Ej: Ana García" autocomplete="off">
+    </div>
+    <div class="fg">
+      <label class="fl">Color del perfil</label>
+      <div class="color-picker" id="cp"></div>
+    </div>
+    <div class="fg">
+      <label class="fl">Contraseña inicial</label>
+      <div class="pw-wrap">
+        <input type="password" class="fc" id="ie-pw" placeholder="El colaborador usará esta contraseña">
+        <button class="pw-eye" onclick="togglePw('ie-pw')" type="button">👁</button>
+      </div>
+      <div class="fg-hint">El colaborador puede cambiarla después de iniciar sesión</div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModals()">Cancelar</button>
+      <button class="btn btn-primary" onclick="doAddEmployee()">Crear Perfil</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: Registro ══ -->
+<div class="overlay" id="m-entry" style="display:none">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="modal-ttl" id="entry-ttl">📋 Nuevo Registro</div>
+      <button class="modal-x" onclick="closeModals()">✕</button>
+    </div>
+    <div class="type-toggle">
+      <div class="topt" id="topt-extra" onclick="selectEntryType('extra')">⬆ Horas Extra</div>
+      <div class="topt" id="topt-recovery" onclick="selectEntryType('recovery')">⬇ Reposición</div>
+    </div>
+    <div class="fg">
+      <label class="fl">Fecha</label>
+      <input type="date" class="fc" id="ie-date">
+    </div>
+    <div class="grid2">
+      <div class="fg">
+        <label class="fl">Horas</label>
+        <input type="number" class="fc" id="ie-hrs" placeholder="0" min="0" max="24" step="1">
+      </div>
+      <div class="fg">
+        <label class="fl">Minutos</label>
+        <select class="fc" id="ie-min">
+          <option value="0">0 min</option>
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="45">45 min</option>
+        </select>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Actividad / Descripción</label>
+      <input type="text" class="fc" id="ie-act" placeholder="¿Qué se realizó en ese tiempo?">
+    </div>
+    <div class="fg">
+      <label class="fl">Observaciones (opcional)</label>
+      <input type="text" class="fc" id="ie-notes" placeholder="Notas adicionales…">
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModals()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-save" onclick="doSaveEntry()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: Contraseña ══ -->
+<div class="overlay" id="m-pw" style="display:none">
+  <div class="modal">
+    <div class="modal-hd">
+      <div class="modal-ttl">🔑 Cambiar Contraseña</div>
+      <button class="modal-x" onclick="closeModals()">✕</button>
+    </div>
+    <p class="fg-hint" id="pw-for" style="margin-bottom:16px;font-size:.85rem;color:var(--txt2)"></p>
+    <div class="fg">
+      <label class="fl">Nueva contraseña</label>
+      <div class="pw-wrap">
+        <input type="password" class="fc" id="ipw-new" placeholder="Mínimo 3 caracteres">
+        <button class="pw-eye" onclick="togglePw('ipw-new')" type="button">👁</button>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Confirmar contraseña</label>
+      <div class="pw-wrap">
+        <input type="password" class="fc" id="ipw-new2" placeholder="Repite la contraseña" onkeydown="if(event.key==='Enter')doChangePw()">
+        <button class="pw-eye" onclick="togglePw('ipw-new2')" type="button">👁</button>
+      </div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-ghost" onclick="closeModals()">Cancelar</button>
+      <button class="btn btn-primary" onclick="doChangePw()">Cambiar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ MODAL: Resumen ══ -->
+<div class="overlay" id="m-sum" style="display:none">
+  <div class="modal modal-lg">
+    <div class="modal-hd">
+      <div class="modal-ttl">📊 Resumen General del Equipo</div>
+      <button class="modal-x" onclick="closeModals()">✕</button>
+    </div>
+    <div id="sum-content">
+      <div class="loading"><div class="spinner"></div> Calculando…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
