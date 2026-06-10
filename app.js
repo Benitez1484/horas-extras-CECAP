@@ -278,54 +278,63 @@ async function doLogin() {
   const pid   = qs('login-who').value;
   const pw    = qs('login-pw').value;
   const errEl = qs('login-err');
-  const btn   = qs('login-btn');
 
   errEl.style.display = 'none';
   if (!pid) { toast('Selecciona una persona de la lista', 'err'); return }
   if (!pw)  { toast('Escribe tu contraseña', 'err'); return }
 
-  btn.disabled = true;
-  btn.innerHTML = '<div class="spinner" style="width:16px;height:16px;margin:0 auto"></div>';
+  // ── Transición inmediata: cambiar a pantalla de carga al instante ──────
+  // El usuario nunca ve el botón "congelado" — la pantalla ya cambió
+  const lsSub = qs('ls-sub');
+  if (lsSub) lsSub.textContent = 'Verificando…';
+  showScreen('loading-screen');
 
   try {
-    // SHA-256 local (≈ 1ms) — sin llamada a Firebase
-    const hash = await sha256(pw);
+    const hash = await sha256(pw);   // ~1ms local, sin Firebase
     let newSession;
 
     if (pid === '__admin__') {
-      // Verificar contra caché local (cargado en init)
-      if (!CACHE.admin || CACHE.admin.passwordHash !== hash) {
+      // ── Admin: verificar contra caché ──
+      if (!CACHE.admin) {
+        // Caché vacío: re-fetch una sola vez (raro, solo si la página se recaró)
+        const snap = await ADMIN_REF.get();
+        if (!snap.exists || snap.data().passwordHash !== hash)
+          throw Object.assign(new Error(), { code: 'wrong' });
+        CACHE.admin = snap.data();
+      } else if (CACHE.admin.passwordHash !== hash) {
         throw Object.assign(new Error(), { code: 'wrong' });
       }
       newSession = {
         personId: '__admin__', isAdmin: true,
         name: CACHE.admin.name || 'Administrador', color: '#4d9fff'
       };
-    } else {
-      // Verificar contra caché local (cargado en populateLoginDropdown)
-      const emp = CACHE.employees[pid];
 
+    } else {
+      // ── Empleado: verificar contra caché ──
+      const emp = CACHE.employees[pid];
       if (emp) {
-        // Caché disponible → verificación local, sin Firebase
         if (emp.passwordHash !== hash) throw Object.assign(new Error(), { code: 'wrong' });
         newSession = { personId: pid, isAdmin: false, name: emp.name, color: emp.color || '#00d4aa' };
       } else {
-        // Caché vacío (caso raro: página recién abierta con sesión expirada)
+        // Caché vacío: re-fetch (solo si entró sin pasar por init normal)
         const snap = await db.collection('employees').doc(pid).get();
-        if (!snap.exists || snap.data().passwordHash !== hash) {
+        if (!snap.exists || snap.data().passwordHash !== hash)
           throw Object.assign(new Error(), { code: 'wrong' });
-        }
         const d = snap.data();
-        CACHE.employees[pid] = { id: pid, ...d }; // guardar para no volver a buscar
+        CACHE.employees[pid] = { id: pid, ...d };
         newSession = { personId: pid, isAdmin: false, name: d.name, color: d.color || '#00d4aa' };
       }
     }
 
     S.session = newSession;
     saveSession(S.session);
-    await startApp();
+    await startApp();    // showScreen('app') es lo primero que hace startApp
 
   } catch (err) {
+    // Algo falló → volver al login con el mensaje correspondiente
+    if (lsSub) lsSub.textContent = 'Conectando con Firebase…';
+    showScreen('login-screen');
+
     if (err.code === 'wrong') {
       errEl.style.display = 'flex';
     } else if (err.code === 'permission-denied') {
@@ -334,8 +343,6 @@ async function doLogin() {
       toast('Error de conexión: ' + (err.message || err.code || ''), 'err');
       console.error('doLogin error:', err);
     }
-    btn.disabled = false;
-    btn.innerHTML = '<span>Iniciar Sesión</span> <span>→</span>';
   }
 }
 
